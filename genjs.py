@@ -251,6 +251,10 @@ class JsGenerator(compiler.CodeGenerator):
         if outdent_later:
             self.outdent()
 
+    def visit_Getattr(self, node, frame):
+        self.visit(node.node, frame)
+        self.write('[%r]' % node.attr)
+
 
     def visit_For(self, node, frame):
         # when calculating the nodes for the inner frame we have to exclude
@@ -310,11 +314,14 @@ class JsGenerator(compiler.CodeGenerator):
                  "loop it's undefined.  Happened in loop on %s" %
                  self.position(node)))
 
+        if extended_loop:
+            self.writeline("var l_loop={}");
+            self.writeline("var __length = ")
+            self.visit(node.iter, loop_frame)
+            self.write(".length;")
+
         self.writeline('for(var __i=0;__i< ', node)
-        self.visit(node.iter, loop_frame)
-        self.write(".length; __i++)")
-        assert not extended_loop, "wtf extended loops?"
-        #self.write(extended_loop and ', l_loop in LoopContext(' or ' in ')
+        self.write("__length; __i++)")
 
         # if we have an extened loop and a node test, we filter in the
         # "outer frame".
@@ -340,8 +347,6 @@ class JsGenerator(compiler.CodeGenerator):
 
         if node.recursive:
             self.write(', recurse=loop_render_func):')
-        else:
-            self.write(extended_loop and ')' or '')
 
         # tests in not extended loops become a continue
         if not extended_loop and node.test is not None:
@@ -354,6 +359,18 @@ class JsGenerator(compiler.CodeGenerator):
             self.outdent(2)
 
         self.indent()
+
+        #XXX: this sucks
+        if extended_loop:
+            self.writeline("l_loop.index = __i+1")
+            self.writeline("l_loop.index0 = __i")
+            self.writeline("l_loop.first = (__i==0)")
+            self.writeline("l_loop.last = (__i+1 == __length)")
+            self.writeline("l_loop.revindex = __length - __i")
+            self.writeline("l_loop.revindex = __length - __i - 1")
+
+
+
         self.writeline("var ", node.target);
         self.visit(node.target, loop_frame);
         self.write(" = ")
