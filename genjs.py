@@ -88,13 +88,13 @@ class JsGenerator(compiler.CodeGenerator):
         self.outdent(2 + (not self.has_known_extends))
         """
 
-        """
         # at this point we now have the blocks collected and can visit them too.
         for name, block in self.blocks.iteritems():
             block_frame = Frame(eval_ctx)
             block_frame.inspect(block.body)
             block_frame.block = name
-            self.writeline('def block_%s(context%s):' % (name, envenv),
+            block_frame.buffer = frame.buffer
+            self.writeline('var block_%s = function(context, %s)' % (name, frame.buffer),
                            block, 1)
             self.indent()
             undeclared = find_undeclared(block.body, ('self', 'super'))
@@ -114,7 +114,23 @@ class JsGenerator(compiler.CodeGenerator):
                                                    for x in self.blocks),
                        extra=1)
 
-        """
+
+    def visit_Block(self, node, frame):
+        """Call a block and register it for the template."""
+        level = 1
+        if frame.toplevel:
+            # if we know that we are a child template, there is no need to
+            # check if we are one
+            if self.has_known_extends:
+                return
+            if self.extends_so_far > 0:
+                self.writeline('if parent_template is None:')
+                self.indent()
+                level += 1
+        context = node.scoped and 'context.derived(locals())' or 'context'
+        self.writeline('blocks[%r](%s, %s)' % (
+                       node.name, context, frame.buffer), node)
+
 
     def blockvisit(self, nodes, frame):
         """Visit a list of nodes as block in a frame.  If the current frame
