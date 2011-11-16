@@ -1,0 +1,7 @@
+Jinja2 to js compiler
+
+- supports lame context varibales
+- no blocks
+- no inheritance
+- simple for loops
+- more later
