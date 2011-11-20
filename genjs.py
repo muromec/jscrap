@@ -40,6 +40,9 @@ for attr_name in dir(compiler.CodeGenerator):
 
     setattr(compiler.CodeGenerator, attr_name, wrap(attr))
 
+def jbool(val):
+    return "true" if val else "false"
+
 class JsGenerator(compiler.CodeGenerator):
     def visit_Template(self, node, frame=None):
         eval_ctx = EvalContext(self.environment, self.name)
@@ -433,6 +436,48 @@ class JsGenerator(compiler.CodeGenerator):
             self.indent()
             self.blockvisit(node.else_, if_frame)
             self.outdent()
+
+    def macro_body(self, node, frame, children=None):
+        """Dump the function def of a macro or call block."""
+        frame = self.function_scoping(node, frame, children)
+        # macros are delayed, they never require output checks
+        frame.require_output_check = False
+        args = frame.arguments
+        # XXX: this is an ugly fix for the loop nesting bug
+        # (tests.test_old_bugs.test_loop_call_bug).  This works around
+        # a identifier nesting problem we have in general.  It's just more
+        # likely to happen in loops which is why we work around it.  The
+        # real solution would be "nonlocal" all the identifiers that are
+        # leaking into a new python frame and might be used both unassigned
+        # and assigned.
+        if 'loop' in frame.identifiers.declared:
+            args = args + ['var l_loop=l_loop']
+        self.writeline('var macro = function(%s)' % ', '.join(args), node)
+        self.indent()
+        self.buffer(frame)
+        self.pull_locals(frame)
+        self.blockvisit(node.body, frame)
+        self.return_buffer_contents(frame)
+        self.outdent()
+        return frame
+
+
+    def macro_def(self, node, frame):
+        """Dump the macro definition for the def created by macro_body."""
+        arg_tuple = ', '.join(repr(x.name) for x in node.args)
+        name = getattr(node, 'name', None)
+        if len(node.args) == 1:
+            arg_tuple += ','
+        self.write('Macro(environment, macro, %r, [%s], [' %
+                   (name, arg_tuple))
+        for arg in node.defaults:
+            self.visit(arg, frame)
+            self.write(', ')
+        self.write('], %s, %s, %s)' % (
+            jbool(frame.accesses_kwargs),
+            jbool(frame.accesses_varargs),
+            jbool(frame.accesses_caller)
+        ))
 
 
 
