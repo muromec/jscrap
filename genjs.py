@@ -366,6 +366,7 @@ class JsGenerator(compiler.CodeGenerator):
 
         # tests in not extended loops become a continue
         if not extended_loop and node.test is not None:
+            assert False, "extented loop with test"
             self.indent()
             self.writeline('if not ')
             self.visit(node.test, loop_frame)
@@ -398,7 +399,7 @@ class JsGenerator(compiler.CodeGenerator):
         self.outdent()
 
         if node.else_:
-            self.writeline('if %s:' % iteration_indicator)
+            self.writeline('if(%s)' % iteration_indicator)
             self.indent()
             self.blockvisit(node.else_, loop_frame)
             self.outdent()
@@ -417,6 +418,21 @@ class JsGenerator(compiler.CodeGenerator):
             self.visit(node.iter, frame)
             self.write(', loop)')
             self.end_write(frame)
+
+
+    def visit_If(self, node, frame):
+        if_frame = frame.soft()
+        self.writeline('if( ', node)
+        self.visit(node.test, if_frame)
+        self.write(')')
+        self.indent()
+        self.blockvisit(node.body, if_frame)
+        self.outdent()
+        if node.else_:
+            self.writeline('else')
+            self.indent()
+            self.blockvisit(node.else_, if_frame)
+            self.outdent()
 
 
 
