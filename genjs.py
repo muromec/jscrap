@@ -8,37 +8,18 @@ from jinja2 import nodes
 from jinja2.nodes import EvalContext
 from jinja2.utils import Markup, concat, escape, is_python_keyword, next
 
-from functools import wraps
-
 def fname(cls, s):
     return s.replace(".html", '')+".js"
 
 
+class JsNone(object):
+    def __repr__(self):
+        return 'undefined'
 
-def wrap(f):
-    @wraps(f)
-    def wrapped(*a, **kw):
-        print("called %s" % f.__name__)
+    def __nonzero__(self):
+        return False
 
-        return f(*a, **kw)
-    return wrapped
-
-WHITE = [
-        "writeline",
-        "newline",
-        "write",
-        "indent",
-]
-
-for attr_name in dir(compiler.CodeGenerator):
-    if attr_name in WHITE:
-        continue
-
-    attr = getattr(compiler.CodeGenerator, attr_name)
-    if not hasattr(attr, 'im_func'):
-        continue
-
-    setattr(compiler.CodeGenerator, attr_name, wrap(attr))
+JsNone = JsNone()
 
 def jbool(val):
     return "true" if val else "false"
@@ -335,12 +316,17 @@ class JsGenerator(compiler.CodeGenerator):
 
         if extended_loop:
             self.writeline("var l_loop={}");
+
             self.writeline("var __length = ")
             self.visit(node.iter, loop_frame)
             self.write(".length;")
 
-        self.writeline('for(var __i=0;__i< ', node)
-        self.write("__length; __i++)")
+            self.writeline('for(var __i=0;__i< ', node)
+            self.write("__length; __i++)")
+        else:
+            self.writeline('for(var __i=0;__i<', node.iter)
+            self.visit(node.iter, loop_frame)
+            self.write('.length; __i++)')
 
         # if we have an extened loop and a node test, we filter in the
         # "outer frame".
@@ -465,7 +451,7 @@ class JsGenerator(compiler.CodeGenerator):
     def macro_def(self, node, frame):
         """Dump the macro definition for the def created by macro_body."""
         arg_tuple = ', '.join(repr(x.name) for x in node.args)
-        name = getattr(node, 'name', None)
+        name = getattr(node, 'name', JsNone)
         if len(node.args) == 1:
             arg_tuple += ','
         self.write('Macro(environment, macro, %r, [%s], [' %
@@ -479,12 +465,38 @@ class JsGenerator(compiler.CodeGenerator):
             jbool(frame.accesses_caller)
         ))
 
+    def visit_CallBlock(self, node, frame):
+        children = node.iter_child_nodes(exclude=('call',))
+        call_frame = self.macro_body(node, frame, children)
+        self.writeline('var caller = ')
+        self.macro_def(node, call_frame)
+        self.start_write(frame, node)
+        self.visit_Call(node.call, call_frame, forward_caller=True)
+        self.end_write(frame)
+
+    def visit_Call(self, node, frame, forward_caller=False):
+        if self.environment.sandboxed:
+            self.write('environment.call(context, ')
+        else:
+            self.write('context.call(')
+        self.visit(node.node, frame)
+        extra_kwargs = forward_caller and {'caller': 'caller'} or None
+        self.signature(node, frame, extra_kwargs)
+        self.write(')')
 
 
-ModuleLoader.get_module_filename = classmethod(fname)
-compiler.CodeGenerator = JsGenerator
+    def start_write(self, frame, node=None):
+        """Yield or write into the frame buffer."""
+        self.writeline('%s.push(' % frame.buffer, node)
 
 
-env = Environment(loader= FileSystemLoader("./tpls"))
-env.compile_templates("./data/js/tpl/", zip=None,
-        log_function = print)
+
+if __name__ == '__main__':
+
+    ModuleLoader.get_module_filename = classmethod(fname)
+    compiler.CodeGenerator = JsGenerator
+
+
+    env = Environment(loader= FileSystemLoader("./tpls"))
+    env.compile_templates("./data/js/tpl/", zip=None,
+            log_function = print)
