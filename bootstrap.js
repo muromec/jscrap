@@ -20,7 +20,12 @@ environment = new (function(){
 Macro = function(env, func, fname, _args, _defs, 
 accesses_kwargs, accesses_varargs, accesses_caller) {
 
-    return func;
+    return {
+        func: func,
+        accesses_kwargs: accesses_kwargs,
+        accesses_varargs: accesses_varargs,
+        accesses_caller: accesses_caller,
+    }
 
 }
 
@@ -41,7 +46,15 @@ var Context = function(param) {
         },
         vars: _vars,
         call: function(f, _arg0) {
-            return f(_arg0)
+
+            if(f.accesses_varargs) {
+                var varags = [];
+                for(var i=1;i<arguments.length;i++)
+                    varags.push(arguments[i]);
+                return f.func(varags)
+            }
+
+            return f.func(_arg0)
         }
     }
 }
