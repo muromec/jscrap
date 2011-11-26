@@ -373,7 +373,7 @@ class JsGenerator(compiler.CodeGenerator):
             self.writeline("l_loop.first = (__i==0)")
             self.writeline("l_loop.last = (__i+1 == __length)")
             self.writeline("l_loop.revindex = __length - __i")
-            self.writeline("l_loop.revindex = __length - __i - 1")
+            self.writeline("l_loop.revindex0 = __length - __i - 1")
 
 
 
@@ -454,7 +454,7 @@ class JsGenerator(compiler.CodeGenerator):
         name = getattr(node, 'name', JsNone)
         if len(node.args) == 1:
             arg_tuple += ','
-        self.write('Macro(environment, macro, %r, [%s], [' %
+        self.write('new Macro(environment, macro, %r, [%s], [' %
                    (name, arg_tuple))
         for arg in node.defaults:
             self.visit(arg, frame)
