@@ -2,12 +2,14 @@ import subprocess
 import os
 import simplejson
 
+from jinja2.parser import Parser
+from genjs import JsGenerator
+
 def render(source=None, filename=None, **kw):
 
     if filename is not None:
         tpl = filename
     elif source is not None:
-        print source
         tpl = os.tempnam(None, "phantom")
         tpl_f = open(tpl, 'w')
         tpl_f.write(source)
@@ -36,12 +38,18 @@ def render(source=None, filename=None, **kw):
     if filename is None:
         os.unlink(tpl)
 
-    return out.strip()
+    rep = {
+            "true": "True",
+            "false": "False",
+    }
+    ret = out.strip()
+    for k,v in rep.items():
+        ret = ret.replace(k,v)
+
+    return ret
 
 def render_str(src, **kw):
-    from jinja2.parser import Parser
     from jinja2.environment import Environment
-    from genjs import JsGenerator
     env = Environment()
     parsed = Parser(env, src)
     gen = JsGenerator(env, '<internal>', '<internal>')
@@ -50,20 +58,45 @@ def render_str(src, **kw):
     return render(source=gen.stream.getvalue(), **kw)
 
 class Tpl(object):
-    def __init__(self, source):
-        self.source = source
+    def __init__(self, env, source, name):
+        self.env = env
+        self.js = {}
+        self.js[name] = self.js_compile(source, name)
+        tpls = env.loader.list_templates() if env.loader else []
+        for _name in tpls:
+            _source,_,_ = env.loader.get_source(env, _name)
+            self.js[_name] = self.js_compile(_source, _name)
+
+        self.name = name
+
+    def js_compile(self, source, name):
+        code = Parser(self.env, source)
+        gen = JsGenerator(self.env, name, name)
+        gen.visit(code.parse())
+        return gen.stream.getvalue()
+
+    def js_all(self):
+        return str.join("\n", self.js.values())
 
     def render(self, kw=None, **kwargs):
         kw = kw or kwargs or {}
-        ret = render_str(self.source, **kw)
+        print self.js_all()
+        ret = render(self.js_all(), **kw)
         print ret
         return ret
 
 if __name__ == '__main__':
 
     src = "<body>{% for x in mlist %}{{x}}{%endfor%}</body>"
-    from jinja2.environment import Environment
-    Environment.from_string = Tpl
+    from jinja2 import environment
+    import jinja2
+    class FakeEnv(environment.Environment):
+        def from_string(self, source):
+            tpl = Tpl(self, source, 'main')
+            return tpl
+
+    environment.Environment = FakeEnv
+    jinja2.Environment = FakeEnv
 
     from nose.core import TestProgram
     TestProgram()#defaultTest='jinja2.testsuite.core_tags')
