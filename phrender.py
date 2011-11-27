@@ -69,12 +69,15 @@ def render_str(src, **kw):
     return render(source=gen.stream.getvalue(), **kw)
 
 class Tpl(object):
-    def __init__(self, env, source, name):
+    def __init__(self, env, source=None, name=None):
         self.env = env
         self.js = {}
-        self.js[name] = self.js_compile(source, name)
+        if source:
+            self.js[name] = self.js_compile(source, name)
+
         tpls = env.loader.list_templates() if env.loader else []
         for _name in tpls:
+
             _source,_,_ = env.loader.get_source(env, _name)
             self.js[_name] = self.js_compile(_source, _name)
 
@@ -92,7 +95,7 @@ class Tpl(object):
     def render(self, kw=None, **kwargs):
         kw = kw or kwargs or {}
         print self.js_all()
-        ret = render(self.js_all(), **kw)
+        ret = render(self.js_all(), _entry=self.name, **kw)
         print ret
         return ret
 
@@ -102,6 +105,9 @@ if __name__ == '__main__':
     from jinja2 import environment
     import jinja2
     class FakeEnv(environment.Environment):
+        def get_template(self, name):
+            return Tpl(self, name=name)
+
         def from_string(self, source):
             tpl = Tpl(self, source, 'main')
             return tpl
