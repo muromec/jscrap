@@ -1,6 +1,11 @@
 // XXX: move out, drop global
 environment = new (function(){
     var tpl_reg = {}
+    var array_stringify = function() {
+        return "["+this.join(", ")+"]"
+    }
+    Array.prototype.toString = array_stringify;
+
     return {
         getitem: function(iterable, idx) {
             if (!iterable)
@@ -11,7 +16,82 @@ environment = new (function(){
         filters: {
             join: function(ctx, iterable, chr) {
                 return iterable.join(chr);
-            }
+            },
+            batch: function(iterable, bsize, fll) {
+                var ret = [],
+                   current = [];
+
+                if(typeof(fll) == 'string')
+                    fll = "'"+fll.replace("'", "\\'")+"'" // XXX: proper escape
+
+                for(var i=0;i<iterable.length;i++) {
+                    current.push(iterable[i])
+
+                    if(current.length >= bsize) {
+                        ret.push(current);
+                        current = []
+                    }
+                }
+                if(current.length && fll!==undefined) {
+                    while(current.length < bsize)
+                        current.push(fll)
+                }
+                if(current.length)
+                    ret.push(current)
+
+                return ret;
+            },
+            list: function(iterable) {
+                return Array.prototype.slice.call(iterable)
+
+            },
+            lower: function(str) {
+                return str.toString().toLowerCase()
+            },
+            upper: function(str) {
+                return str.toString().toUpperCase()
+            },
+            escape: function(str) {
+                // XXX: need proper escape
+                return str.toString().replace("<","&lt;").replace(">","&gt;")
+            },
+            /*
+            center: function(str) {
+                console.log("center")
+                return str.center()
+            },*/
+            first: function(env, iter) {
+                return iter[0]
+            },
+            __default: function(str, d) {
+                return (str || d)
+            },
+            dictsort: function(obj, case_s, by) {
+                var ret = [];
+                var idx = 0;
+                if(by == 'value')
+                    idx = 1;
+
+                var sort_func = function(a, b) {
+                    a = a[idx]
+                    b = b[idx]
+
+                    if(!case_s) {
+                        a = a.toString().toLowerCase()
+                        b = b.toString().toLowerCase()
+                    }
+                    if(a>b) return 1
+                    if(b>a) return -1
+
+                    return 0
+                }
+
+                var key = Object.keys(obj)
+                for(var i=0; i<key.length; i++)
+                    ret.push([key[i], obj[key[i]]])
+
+                return ret.sort(sort_func)
+            },
         },
         get_template: function(tpl, frm) {
             return tpl_reg[tpl]
@@ -167,3 +247,4 @@ var Context = function(param) {
         }
     }
 }
+concat = function(iter) { return iter.join("")}

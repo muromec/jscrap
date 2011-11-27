@@ -8,6 +8,8 @@ from jinja2 import nodes
 from jinja2.nodes import EvalContext
 from jinja2.utils import Markup, concat, escape, is_python_keyword, next
 
+js_keywords = ['return', 'continue', 'function', 'default']
+
 def fname(cls, s):
     return s.replace(".html", '')+".js"
 
@@ -265,7 +267,31 @@ class JsGenerator(compiler.CodeGenerator):
 
     def visit_Getattr(self, node, frame):
         self.visit(node.node, frame)
-        self.write('[%r]' % node.attr)
+        if node.attr in js_keywords:
+            attr = "__%s" % node.attr
+        else:
+            attr = node.attr
+        self.write('[%r]' % attr)
+
+    def pull_dependencies(self, nodes):
+        """Pull all the dependencies."""
+        visitor = compiler.DependencyFinderVisitor()
+        for node in nodes:
+            visitor.visit(node)
+        for dependency in 'filters', 'tests':
+            mapping = getattr(self, dependency)
+            for name in getattr(visitor, dependency):
+                if name not in mapping:
+                    mapping[name] = self.temporary_identifier()
+
+                if name in js_keywords:
+                    js_name = "__%s" % name
+                else:
+                    js_name = name
+
+                self.writeline('%s = environment.%s[%r]' %
+                               (mapping[name], dependency, js_name))
+
 
 
     def visit_For(self, node, frame):
