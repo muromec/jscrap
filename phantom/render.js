@@ -18,7 +18,8 @@ page.onConsoleMessage = function (msg) {
 
 
 console.log(page.evaluate(function() {
-    ret = root(Context(param));
+    var ctx = new Context(param);
+    ret = tpl_main.root(ctx);
     try {
         document.write(ret)
     } catch(e) {

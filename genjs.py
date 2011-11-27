@@ -37,9 +37,13 @@ class JsGenerator(compiler.CodeGenerator):
         for import_ in node.find_all(nodes.ImportedName):
             assert False, "imports not supported"
 
-        self.writeline('var name = %r;' % self.name)
+        self.writeline('var tpl_%s = new function(param)' % self.name)
+        self.indent()
+        self.writeline('return')
+        self.indent()
+        self.writeline('name:  %r,' % self.name)
 
-        self.writeline('var root = function(context)', extra=1)
+        self.writeline('root: function(context)', extra=1)
 
         # process the root
         frame = Frame(eval_ctx)
@@ -94,9 +98,17 @@ class JsGenerator(compiler.CodeGenerator):
             self.blockvisit(block.body, block_frame)
             self.outdent()
 
-        self.writeline('blocks = {%s}' % ', '.join('%r: block_%s' % (x, x)
+        self.write(',')
+        self.writeline('blocks:  {%s},' % ', '.join('%r: block_%s' % (x, x)
                                                    for x in self.blocks),
                        extra=1)
+
+        self.outdent()
+        self.outdent()
+        self.writeline('if(typeof(environment)!="undefined")')
+        self.indent()
+        self.writeline('environment.tpl[%r] = tpl_%s' % (self.name, self.name))
+        self.outdent()
 
 
     def visit_Block(self, node, frame):
@@ -314,19 +326,14 @@ class JsGenerator(compiler.CodeGenerator):
                  "loop it's undefined.  Happened in loop on %s" %
                  self.position(node)))
 
-        if extended_loop:
-            self.writeline("var l_loop={}");
 
-            self.writeline("var __length = ")
-            self.visit(node.iter, loop_frame)
-            self.write(".length;")
-
-            self.writeline('for(var __i=0;__i< ', node)
-            self.write("__length; __i++)")
+        self.writeline("var __iter_map=function(")#__current,__i)")
+        if not isinstance(node.target, nodes.Tuple):
+            self.visit(node.target, loop_frame)
         else:
-            self.writeline('for(var __i=0;__i<', node.iter)
-            self.visit(node.iter, loop_frame)
-            self.write('.length; __i++)')
+            self.write("__current")
+
+        self.write(",__i)")
 
         # if we have an extened loop and a node test, we filter in the
         # "outer frame".
@@ -368,23 +375,59 @@ class JsGenerator(compiler.CodeGenerator):
 
         #XXX: this sucks
         if extended_loop:
+            self.writeline("var l_loop={}");
+            self.writeline("l_loop.length = ")
+            self.visit(node.iter, loop_frame)
+            self.write(".length;")
+
+
             self.writeline("l_loop.index = __i+1")
             self.writeline("l_loop.index0 = __i")
             self.writeline("l_loop.first = (__i==0)")
-            self.writeline("l_loop.last = (__i+1 == __length)")
-            self.writeline("l_loop.revindex = __length - __i")
-            self.writeline("l_loop.revindex0 = __length - __i - 1")
+            self.writeline("l_loop.last = (__i+1 == l_loop.length)")
+            self.writeline("l_loop.revindex = l_loop.length - __i")
+            self.writeline("l_loop.revindex0 = l_loop.length - __i - 1")
 
 
 
-        self.writeline("var ", node.target);
-        self.visit(node.target, loop_frame);
-        self.write(" = ")
-        self.visit(node.iter, loop_frame)
-        self.write("[__i];")
+        def setvar(node_target, node_iter, idx=None):
+            self.writeline("var ", node_target);
+            self.visit(node_target, loop_frame);
+            self.write(" = ")
+            self.write("__current[%d];"%idx)
+
+        if isinstance(node.target, nodes.Tuple):
+            for idx,item in enumerate(node.target.items):
+                setvar(item, node.iter, idx)
+
         self.blockvisit(node.body, loop_frame)
         if node.else_:
             self.writeline('%s = 0' % iteration_indicator)
+        self.outdent()
+
+        self.writeline("if((")
+        self.visit(node.iter, loop_frame)
+        self.write("!==undefined)&&")
+        self.visit(node.iter, loop_frame)
+        self.write(".map)")
+
+        self.visit(node.iter, loop_frame)
+        self.write(".map(__iter_map)")
+
+        self.writeline("else if((")
+        self.visit(node.iter, loop_frame)
+        self.write("!==undefined)&&")
+        self.visit(node.iter, loop_frame)
+        self.write(".length)")
+        self.indent()
+        self.writeline("for(var __i=0;__i<")
+        self.visit(node.iter, loop_frame)
+        self.write(".length;__i++)")
+        self.indent()
+        self.writeline("__iter_map(")
+        self.visit(node.iter, loop_frame)
+        self.write("[__i], __i)")
+        self.outdent()
         self.outdent()
 
         if node.else_:
@@ -488,6 +531,93 @@ class JsGenerator(compiler.CodeGenerator):
     def start_write(self, frame, node=None):
         """Yield or write into the frame buffer."""
         self.writeline('%s.push(' % frame.buffer, node)
+
+
+    def visit_FromImport(self, node, frame):
+        """Visit named imports."""
+        self.newline(node)
+        self.write('var included_template = environment.get_template(')
+        self.visit(node.template, frame)
+        self.write(', %r)' % self.name)
+        self.writeline('included_template.context = new Context()')
+        self.writeline('included_template.root(included_template.context)')
+
+        var_names = []
+        discarded_names = []
+        for name in node.names:
+            if isinstance(name, tuple):
+                name, alias = name
+            else:
+                alias = name
+            self.writeline('l_%s = included_template.context.exported_vars.resolve(%r)' % (alias, name))
+            self.writeline('if (l_%s === undefined)' % alias)
+            self.indent()
+            self.writeline('throw ReferenceError("Included template doesn not '
+                    'export %r")' % name)
+            self.outdent()
+            if frame.toplevel:
+                var_names.append(alias)
+                if not alias.startswith('_'):
+                    discarded_names.append(alias)
+            frame.assigned_names.add(alias)
+
+        if var_names:
+            if len(var_names) == 1:
+                name = var_names[0]
+                self.writeline('context.vars[%r] = l_%s' % (name, name))
+            else:
+                self.writeline('context.vars.update({%s})' % ', '.join(
+                    '%r: l_%s' % (name, name) for name in var_names
+                ))
+        if discarded_names:
+            if len(discarded_names) == 1:
+                self.writeline('context.exported_vars.discard(%r)' %
+                               discarded_names[0])
+            else:
+                self.writeline('context.exported_vars.difference_'
+                               'update((%s))' % ', '.join(map(repr, discarded_names)))
+
+    def uaop(operator, interceptable=True):
+        def visitor(self, node, frame):
+            if self.environment.sandboxed and \
+               operator in self.environment.intercepted_unops:
+                self.write('environment.call_unop(context, %r, ' % operator)
+                self.visit(node.node, frame)
+            else:
+                self.write('(' + operator)
+                self.visit(node.node, frame)
+            self.write(')')
+        return visitor
+
+
+    visit_Not = uaop('! ', interceptable=False)
+
+    def signature(self, node, frame, extra_kwargs=None):
+        for arg in node.args:
+            self.write(', ')
+            self.visit(arg, frame)
+
+        for kwarg in node.kwargs:
+            self.write(', ')
+            self.visit(kwarg, frame)
+
+        if extra_kwargs is not None:
+            self.write(", {")
+            for key, value in extra_kwargs.iteritems():
+                self.write('%s:%s,' % (key, value))
+
+            self.write("}")
+
+    def visit_Const(self, node, frame):
+        val = node.value
+        if isinstance(val, float):
+            self.write(str(val))
+        elif isinstance(val, bool):
+            self.write(jbool(val))
+        elif val is None:
+            self.write("undefined")
+        else:
+            self.write(repr(val))
 
 
 
