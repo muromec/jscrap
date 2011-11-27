@@ -1,6 +1,7 @@
 import subprocess
 import os
 import simplejson
+import re
 
 from jinja2.parser import Parser
 from genjs import JsGenerator
@@ -46,9 +47,15 @@ def render(source=None, filename=None, **kw):
             "true": "True",
             "false": "False",
     }
-    ret = out.strip()
+    ret = out[:-1]
     for k,v in rep.items():
         ret = ret.replace(k,v)
+
+    re_fix = [
+        (r"\[(\w+), (\w+)\]", r"('\1', \2)"),
+    ]
+    for pt,rp in re_fix:
+        ret = re.sub(pt, rp, ret)
 
     return ret
 
