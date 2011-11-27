@@ -20,9 +20,12 @@ environment = new (function(){
         tests: {
             defined: function(arg) {
                 return arg != undefined;
-            }
+            },
+            even: function(arg) {
+                return (arg %2)==0;
+            },
         },
-        Loop: function(iter, length) {
+        Loop: function(iter, length,__iter_map) {
             return {
                 index: iter+1,
                 index0: iter,
@@ -35,6 +38,16 @@ environment = new (function(){
                     func:function() {
                         return arguments[iter % arguments.length];
                     }
+                },
+                func: function(item) {
+                    // XXX: handle undefined and so on
+                    // XXX: duplicates generated code
+
+                    /*
+                     * placing here "return" statement
+                     * adds one "," to output
+                     */
+                    item.map(__iter_map)
                 },
             }
         },
@@ -75,7 +88,21 @@ accesses_kwargs, accesses_varargs, accesses_caller) {
 var Context = function(param) {
     
     var exported_vars = {};
-    var _vars = {};
+    var _vars = {
+        range: {
+            func: function(_f,_t) {
+                var ret = [];
+                if(_t===undefined) {
+                    _t = _f;
+                    _f = 0;
+                }
+                for(;_f<_t;_f++)
+                    ret.push(_f)
+
+                return ret;
+            }
+        }
+    }
     var _param = param || {};
 
     return {
