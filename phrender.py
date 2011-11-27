@@ -16,6 +16,10 @@ def render(source=None, filename=None, **kw):
         tpl_f.close()
 
 
+    for k,v in kw.items():
+        if hasattr(v,'next'):
+            kw[k] = list(v)
+
     param = os.tempnam(None, "phantom")
     param += ".js"
 
