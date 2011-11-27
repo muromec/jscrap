@@ -186,10 +186,34 @@ var Context = function(param) {
     var _param = param || {};
 
     return {
+
+        clone: function(_add) {
+            var param_copy = {};
+
+            for(var key in _param)
+                param_copy[key] = _param[key];
+
+            for(var key in _add)
+                param_copy[key] = _add[key];
+
+            var ctx = new Context(param_copy);
+
+            for(var key in exported_vars)
+                ctx.exported_vars.add(key)
+
+            for(var key in _vars)
+                ctx.vars[key] = _vars[key]
+
+            return ctx;
+
+        },
         
         resolve: function(vname){
 
-            return _param[vname] || _vars[vname];
+            if(_param[vname]!==undefined)
+                return _param[vname];
+
+            return _vars[vname];
         },
         exported_vars: {
             add: function(vname) {
@@ -203,6 +227,32 @@ var Context = function(param) {
 
         },
         vars: _vars,
+        call_blocks: function() {
+            var ret = {},
+                ctx = this;
+            for(bkey in this.blocks) {
+                ret[bkey] = {
+                    func: (function(b){
+                        return function() {
+                            var buf = [];
+                            b(ctx, buf);
+                            return buf.join("")
+                        }
+                    })(this.blocks[bkey])
+                }
+            }
+            return ret;
+        },
+        super_block: function(block) {
+            var ctx = this;
+            return {
+                func: function(){
+                    var buf = []
+                    block._super(ctx, buf)
+                    return buf.join("")
+                }
+            }
+        },
         call: function(f, _arg0) {
 
             var args = [],
