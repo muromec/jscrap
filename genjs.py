@@ -39,45 +39,16 @@ class JsGenerator(compiler.CodeGenerator):
         for import_ in node.find_all(nodes.ImportedName):
             assert False, "imports not supported"
 
-        self.writeline('var tpl_%s = new function(param)' % self.name)
+        self.safename = self.name.replace(".","_")
+        self.writeline('var tpl_%s = new function()' % self.safename)
         self.indent()
-        self.writeline('return')
-        self.indent()
-        self.writeline('name:  %r,' % self.name)
 
-        self.writeline('root: function(context)', extra=1)
-
-        # process the root
         frame = Frame(eval_ctx)
         frame.inspect(node.body)
         frame.toplevel = frame.rootlevel = True
         frame.require_output_check =  not self.has_known_extends
-        self.indent()
-            
-        self.writeline('var parent_template = null;')
-
-        if 'self' in find_undeclared(node.body, ('self',)):
-            assert False, "dont know self magic"
 
         self.buffer(frame)
-        self.pull_locals(frame)
-        self.pull_dependencies(node.body)
-        self.blockvisit(node.body, frame)
-        self.return_buffer_contents(frame)
-        self.outdent()
-
-        """
-        if not self.has_known_extends:
-            self.indent()
-            self.writeline('if parent_template is not None:')
-        self.indent()
-        self.writeline('for event in parent_template.'
-                       'root_render_func(context):')
-        self.indent()
-        self.writeline('yield event')
-        self.outdent(2 + (not self.has_known_extends))
-        """
-
         # at this point we now have the blocks collected and can visit them too.
         for name, block in self.blocks.iteritems():
             block_frame = Frame(eval_ctx)
@@ -93,41 +64,91 @@ class JsGenerator(compiler.CodeGenerator):
                 self.writeline('l_self = TemplateReference(context)')
             if 'super' in undeclared:
                 block_frame.identifiers.add_special('super')
-                self.writeline('l_super = context.super(%r, '
-                               'block_%s)' % (name, name))
+                self.writeline('l_super = context.super_block(block_%s)' % name)
             self.pull_locals(block_frame)
             self.pull_dependencies(block.body)
             self.blockvisit(block.body, block_frame)
             self.outdent()
 
-        self.write(',')
-        self.writeline('blocks:  {%s},' % ', '.join('%r: block_%s' % (x, x)
+        self.writeline('var blocks = {%s};' % ', '.join('%r: block_%s' % (x, x)
                                                    for x in self.blocks),
                        extra=1)
+
+        self.writeline("var name = %r"% self.name)
+        self.writeline('return')
+        self.indent()
+        self.writeline('name:  name,')
+
+        self.writeline('root: function(context)', extra=1)
+
+
+        self.indent()
+        self.writeline('if(context.blocks==undefined)')
+        self.indent()
+        self.writeline("context.blocks=blocks")
+        self.outdent()
+
+        self.clear_buffer(frame)
+        self.writeline('var parent_template = null;')
+
+        if 'self' in find_undeclared(node.body, ('self',)):
+            frame.identifiers.add_special('self')
+            self.writeline('l_self = context.call_blocks()')
+
+        self.pull_locals(frame)
+        self.pull_dependencies(node.body)
+        self.blockvisit(node.body, frame)
+
+        self.writeline("if(parent_template)")
+        self.indent()
+        self.writeline('return parent_template.root(context)')
+        self.outdent()
+
+        self.return_buffer_contents(frame)
+        self.outdent()
+
+        """
+        if not self.has_known_extends:
+            self.indent()
+            self.writeline('if parent_template is not None:')
+        self.indent()
+        """
+
+
+
+        self.write(',')
+        self.writeline('blocks: blocks')
 
         self.outdent()
         self.outdent()
         self.writeline('if(typeof(environment)!="undefined")')
         self.indent()
-        self.writeline('environment.tpl[%r] = tpl_%s' % (self.name, self.name))
+        self.writeline('environment.tpl[%r] = tpl_%s' % (self.name, self.safename))
         self.outdent()
 
 
     def visit_Block(self, node, frame):
         """Call a block and register it for the template."""
-        level = 1
         if frame.toplevel:
             # if we know that we are a child template, there is no need to
             # check if we are one
             if self.has_known_extends:
                 return
-            if self.extends_so_far > 0:
-                self.writeline('if parent_template is None:')
-                self.indent()
-                level += 1
-        context = node.scoped and 'context.derived(locals())' or 'context'
-        self.writeline('blocks[%r](%s, %s)' % (
-                       node.name, context, frame.buffer), node)
+
+        self.writeline('context.blocks[%r](context' % node.name)
+
+        if node.scoped:
+            self.write('.clone(')
+            self.indent()
+            to_copy = frame.identifiers.declared_locally
+            for varname in to_copy:
+                self.writeline("%s: l_%s"%(varname,varname))
+
+            self.outdent()
+            self.writeline(')')
+
+
+        self.write(', %s)' % frame.buffer)
 
 
     def blockvisit(self, nodes, frame):
@@ -157,6 +178,8 @@ class JsGenerator(compiler.CodeGenerator):
 
     def buffer(self, frame):
         frame.buffer = self.temporary_identifier()
+
+    def clear_buffer(self, frame):
         self.writeline('var %s = [];' % frame.buffer);
 
     def pull_locals(self, frame):
@@ -444,6 +467,8 @@ class JsGenerator(compiler.CodeGenerator):
         self.writeline('var macro = function(%s)' % ', '.join(args), node)
         self.indent()
         self.buffer(frame)
+        self.clear_buffer(frame)
+
         self.pull_locals(frame)
         self.blockvisit(node.body, frame)
         self.return_buffer_contents(frame)
@@ -499,7 +524,7 @@ class JsGenerator(compiler.CodeGenerator):
         self.write('var included_template = environment.get_template(')
         self.visit(node.template, frame)
         self.write(', %r)' % self.name)
-        self.writeline('included_template.context = new Context()')
+        self.writeline('included_template.context = context.clone()')
         self.writeline('included_template.root(included_template.context)')
 
         var_names = []
@@ -585,13 +610,67 @@ class JsGenerator(compiler.CodeGenerator):
             self.write(repr(val))
 
 
+    def visit_Extends(self, node, frame):
+        """Calls the extender."""
+        if not frame.toplevel:
+            self.fail('cannot use extend from a non top-level scope',
+                      node.lineno)
+
+        self.writeline('parent_template = environment.get_template(', node)
+        self.visit(node.template, frame)
+        self.write(', %r)' % self.name)
+        self.writeline("var _blocks = parent_template.blocks;")
+        self.writeline("var _blocks_keys = Object.keys(_blocks);")
+
+
+
+        self.writeline('for(var i=0;i<_blocks_keys.length;i++)')
+        self.indent()
+        self.writeline("var name = _blocks_keys[i]");
+        self.writeline("if(context.blocks[name])")
+        self.indent()
+        self.writeline("context.blocks[name]._super = _blocks[name]")
+        self.writeline("continue")
+        self.outdent()
+        self.writeline('context.blocks[name] = _blocks[name]')
+        self.outdent()
+
+        # if this extends statement was in the root level we can take
+        # advantage of that information and simplify the generated code
+        # in the top level from this point onwards
+        if frame.rootlevel:
+            self.has_known_extends = True
+
+        # and now we have one more
+        self.extends_so_far += 1
+
+
 
 if __name__ == '__main__':
 
-    ModuleLoader.get_module_filename = classmethod(fname)
-    compiler.CodeGenerator = JsGenerator
+    import sys
+    inp,out = sys.argv[1:3]
+    from jinja2.parser import Parser
+
+    env = Environment(loader= FileSystemLoader(inp))
+
+    def jinja_compile(source, name, generator):
+        code = Parser(env, source)
+        gen = generator(env, name, name)
+        gen.visit(code.parse())
+        return gen.stream.getvalue()
 
 
-    env = Environment(loader= FileSystemLoader("./tpls"))
-    env.compile_templates("./data/js/tpl/", zip=None,
-            log_function = print)
+    for tpl in env.loader.list_templates():
+        _source,_,_ = env.loader.get_source(env, tpl)
+
+        jsname = tpl.replace(".", "__")
+        js_file = open("%s/%s.js" % (out, jsname), 'w')
+        js_file.write( jinja_compile(_source, jsname, JsGenerator))
+        js_file.close()
+
+        """
+        py_file = open("%s/%s.py" % (out, tpl), 'w')
+        py_file.write( jinja_compile(_source, tpl, compiler.CodeGenerator))
+        py_file.close()
+        """
