@@ -375,19 +375,9 @@ class JsGenerator(compiler.CodeGenerator):
 
         #XXX: this sucks
         if extended_loop:
-            self.writeline("var l_loop={}");
-            self.writeline("l_loop.length = ")
+            self.writeline("var l_loop= new environment.Loop(__i,");
             self.visit(node.iter, loop_frame)
-            self.write(".length;")
-
-
-            self.writeline("l_loop.index = __i+1")
-            self.writeline("l_loop.index0 = __i")
-            self.writeline("l_loop.first = (__i==0)")
-            self.writeline("l_loop.last = (__i+1 == l_loop.length)")
-            self.writeline("l_loop.revindex = l_loop.length - __i")
-            self.writeline("l_loop.revindex0 = l_loop.length - __i - 1")
-
+            self.write(".length);")
 
 
         def setvar(node_target, node_iter, idx=None):
@@ -600,6 +590,11 @@ class JsGenerator(compiler.CodeGenerator):
         for kwarg in node.kwargs:
             self.write(', ')
             self.visit(kwarg, frame)
+
+        if node.dyn_args:
+            self.write(', {__vararg:')
+            self.visit(node.dyn_args, frame)
+            self.write("}")
 
         if extra_kwargs is not None:
             self.write(", {")

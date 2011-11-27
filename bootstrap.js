@@ -22,6 +22,22 @@ environment = new (function(){
                 return arg != undefined;
             }
         },
+        Loop: function(iter, length) {
+            return {
+                index: iter+1,
+                index0: iter,
+                first: (iter==0),
+                last: (iter+1 == length),
+                revindex: length - iter,
+                revindex0: length - iter - 1,
+                length: length,
+                cycle: {
+                    func:function() {
+                        return arguments[iter % arguments.length];
+                    }
+                },
+            }
+        },
     }
 })();
 
@@ -50,6 +66,8 @@ accesses_kwargs, accesses_varargs, accesses_caller) {
         accesses_caller: accesses_caller,
         args: args,
         max_args: _args.length,
+        name: fname,
+        argnames: _args,
     }
 
 }
@@ -85,20 +103,37 @@ var Context = function(param) {
 
             varargs.shift()
 
-            if(f.accesses_varargs) {
-                args.push(varargs)
-            }
-            if(f.accesses_caller) {
-                var kwargs = varargs[varargs.length-1];
-                if(kwargs && kwargs.caller)
-                    args.push(kwargs.caller)
-            }
-
             for(var i=0;i<f.max_args;i++) {
                 args[i] = varargs[i]
 
                 if(!varargs[i])
                     args[i] = f.args[i]
+            }
+            if(f.max_args==undefined)
+                args = varargs;
+
+            if(args.length && args[args.length-1].__vararg) {
+
+                args = args.concat(args.pop().__vararg);
+            }
+
+            /*
+            if(f.accesses_kwargs) {
+                var kw = varargs[varargs.length-1];
+                console.log("kw :"+kw.keys())
+
+                for(var i=0;i<f.argnames.length;i++)
+                    args[i] = kw[f.argnames[i]];
+            }*/
+
+            if(f.accesses_varargs) {
+                args.push(varargs)
+            }
+
+            if(f.accesses_caller) {
+                var kwargs = varargs.pop()
+                if(kwargs && kwargs.caller)
+                    args.push(kwargs.caller)
             }
 
             return f.func.apply(null, args)
