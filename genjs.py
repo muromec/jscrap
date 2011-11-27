@@ -286,19 +286,7 @@ class JsGenerator(compiler.CodeGenerator):
                         find_undeclared(node.iter_child_nodes(
                             only=('body',)), ('loop',))
 
-        # if we don't have an recursive loop we have to find the shadowed
-        # variables at that point.  Because loops can be nested but the loop
-        # variable is a special one we have to enforce aliasing for it.
-        if not node.recursive:
-            aliases = self.push_scope(loop_frame, ('loop',))
-
-        # otherwise we set up a buffer and add a function def
-        else:
-            assert False, "cannot into recursive loops"
-            self.writeline('def loop(reciter, loop_render_func):', node)
-            self.indent()
-            self.buffer(loop_frame)
-            aliases = {}
+        aliases = self.push_scope(loop_frame, ('loop',))
 
         # make sure the loop variable is a special one and raise a template
         # assertion error if a loop tries to write to loop
@@ -335,49 +323,13 @@ class JsGenerator(compiler.CodeGenerator):
 
         self.write(",__i)")
 
-        # if we have an extened loop and a node test, we filter in the
-        # "outer frame".
-        if extended_loop and node.test is not None:
-            self.write('(')
-            self.visit(node.target, loop_frame)
-            self.write(' for ')
-            self.visit(node.target, loop_frame)
-            self.write(' in ')
-            if node.recursive:
-                self.write('reciter')
-            else:
-                self.visit(node.iter, loop_frame)
-            self.write(' if (')
-            test_frame = loop_frame.copy()
-            self.visit(node.test, test_frame)
-            self.write('))')
-
-        elif node.recursive:
-            self.write('reciter')
-        #else:
-        #    self.visit(node.iter, loop_frame)
-
-        if node.recursive:
-            self.write(', recurse=loop_render_func):')
-
-        # tests in not extended loops become a continue
-        if not extended_loop and node.test is not None:
-            assert False, "extented loop with test"
-            self.indent()
-            self.writeline('if not ')
-            self.visit(node.test, loop_frame)
-            self.write(':')
-            self.indent()
-            self.writeline('continue')
-            self.outdent(2)
-
         self.indent()
 
         #XXX: this sucks
         if extended_loop:
             self.writeline("var l_loop= new environment.Loop(__i,");
             self.visit(node.iter, loop_frame)
-            self.write(".length);")
+            self.write(".length, __iter_map);")
 
 
         def setvar(node_target, node_iter, idx=None):
@@ -389,6 +341,11 @@ class JsGenerator(compiler.CodeGenerator):
         if isinstance(node.target, nodes.Tuple):
             for idx,item in enumerate(node.target.items):
                 setvar(item, node.iter, idx)
+
+        if node.test is not None:
+            self.writeline('if(! ')
+            self.visit(node.test, loop_frame)
+            self.write(') return')
 
         self.blockvisit(node.body, loop_frame)
         if node.else_:
@@ -426,20 +383,7 @@ class JsGenerator(compiler.CodeGenerator):
             self.blockvisit(node.else_, loop_frame)
             self.outdent()
 
-        # reset the aliases if there are any.
-        if not node.recursive:
-            self.pop_scope(aliases, loop_frame)
-
-        # if the node was recursive we have to return the buffer contents
-        # and start the iteration code
-        if node.recursive:
-            self.return_buffer_contents(loop_frame)
-            self.outdent()
-            self.start_write(frame, node)
-            self.write('loop(')
-            self.visit(node.iter, frame)
-            self.write(', loop)')
-            self.end_write(frame)
+        self.pop_scope(aliases, loop_frame)
 
 
     def visit_If(self, node, frame):
