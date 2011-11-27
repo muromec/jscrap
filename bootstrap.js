@@ -11,6 +11,8 @@ environment = new (function(){
             if (!iterable)
                 return
 
+            if(idx<0) idx = iterable.length + idx;
+
             return iterable[idx];
         },
         filters: {
