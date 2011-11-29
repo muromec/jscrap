@@ -275,7 +275,7 @@ class JsGenerator(compiler.CodeGenerator):
         for item in body:
             if isinstance(item, list):
                 val = str(concat(item))
-                val = val.replace("\n", "\\\n")
+                val = val.replace("\n", "\\\n").replace('"', '\\"')
                 self.writeline('%s.push("%s");' % (
                     frame.buffer, val)
                 )
