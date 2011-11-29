@@ -6,8 +6,8 @@ setup(
     packages = ['jscrap'],
     package_data = {
         'jscrap': [
-            'js/*js',
-            'js/phantom/*js',
+            'data/*js',
+            'data/phantom/*js',
         ]
     }
 )
