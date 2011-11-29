@@ -1,7 +1,5 @@
 Jinja2 to js compiler
 
 - supports lame context varibales
-- no blocks
-- no inheritance
-- simple for loops
+- supports blocks, inheritance and some filters
 - more later
